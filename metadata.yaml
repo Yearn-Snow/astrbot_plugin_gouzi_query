@@ -1,0 +1,6 @@
+name: astrbot_plugin_keyword_reply
+display_name: 分享资源查询系统
+desc: 完全匹配资源编号自动回复，并提供独立菜单分页管理
+version: 1.0.0
+author: 狗子
+repo: https://github.com/Yearn-Snow/gouzibot/astrbot_plugin_gouzi_reply
