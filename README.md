@@ -638,7 +638,15 @@ astrbot\_plugin\_gouzi\_query
 
 
 
-\*\*狗子\*\*
+\*\*Yearn-Snow\*\*
+
+
+
+\## 作者QQ
+
+
+
+\*\*1103258240\*\*
 
 
 
