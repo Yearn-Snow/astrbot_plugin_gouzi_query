@@ -277,6 +277,16 @@ class GouziQueryPlugin(Star):
                 "❌ 保存失败，请检查插件权限。"
             )
 
+@filter.command("查询菜单")
+async def query_menu(
+    self,
+    event: AstrMessageEvent
+):
+    yield event.plain_result(
+        "请发送#+数字以获取对应菜单页\n"
+        "例如：#1"
+    )
+    
     # =========================================================
     # 管理员：修改回复
     # =========================================================
