@@ -5,6 +5,7 @@ from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.event.filter import PermissionType
 from astrbot.api.star import Context, Star, register
+from astrbot.core.star.star_tools import StarTools
 
 
 @register(
@@ -37,10 +38,25 @@ class GouziQueryPlugin(Star):
         )
 
         # =====================================================
-        # 插件数据目录
+        # AstrBot 持久化数据目录
+        #
+        # 数据不会放在插件目录中。
+        #
+        # 插件更新：
+        # main.py 等代码       → 更新
+        #
+        # 用户数据：
+        # replies.json         → 保留
+        # menu.json            → 保留
+        #
         # =====================================================
 
-        self.data_dir = Path(__file__).parent / "data"
+        self.data_dir = Path(
+            StarTools.get_data_dir(
+                "astrbot_plugin_gouzi_query"
+            )
+        )
+
         self.data_dir.mkdir(
             parents=True,
             exist_ok=True
@@ -57,6 +73,20 @@ class GouziQueryPlugin(Star):
         self.menu_file = (
             self.data_dir / "menu.json"
         )
+
+        # =====================================================
+        # 兼容旧版本数据
+        #
+        # 以前的数据在：
+        #
+        # astrbot_plugin_gouzi_query/data/
+        #
+        # 如果发现旧数据，就自动复制到新的持久化目录。
+        #
+        # 只迁移一次，不删除旧文件。
+        # =====================================================
+
+        self._migrate_old_data()
 
         # =====================================================
         # 创建数据文件
@@ -92,6 +122,11 @@ class GouziQueryPlugin(Star):
 
         logger.info(
             f"[狗子查询系统] "
+            f"数据目录：{self.data_dir}"
+        )
+
+        logger.info(
+            f"[狗子查询系统] "
             f"关键词回复：{len(self.replies)} 条"
         )
 
@@ -113,7 +148,97 @@ class GouziQueryPlugin(Star):
         )
 
     # =========================================================
-    # 数据文件
+    # 旧数据迁移
+    # =========================================================
+
+    def _migrate_old_data(self):
+
+        old_data_dir = (
+            Path(__file__).parent / "data"
+        )
+
+        old_reply_file = (
+            old_data_dir / "replies.json"
+        )
+
+        old_menu_file = (
+            old_data_dir / "menu.json"
+        )
+
+        # -----------------------------------------------------
+        # 迁移 replies.json
+        # -----------------------------------------------------
+
+        if (
+            old_reply_file.exists()
+            and not self.reply_file.exists()
+        ):
+
+            try:
+
+                with open(
+                    old_reply_file,
+                    "r",
+                    encoding="utf-8"
+                ) as file:
+
+                    old_replies = json.load(file)
+
+                self._save_json(
+                    self.reply_file,
+                    old_replies
+                )
+
+                logger.info(
+                    "[狗子查询系统] "
+                    "已迁移旧版 replies.json"
+                )
+
+            except Exception as error:
+
+                logger.error(
+                    "[狗子查询系统] "
+                    f"迁移 replies.json 失败：{error}"
+                )
+
+        # -----------------------------------------------------
+        # 迁移 menu.json
+        # -----------------------------------------------------
+
+        if (
+            old_menu_file.exists()
+            and not self.menu_file.exists()
+        ):
+
+            try:
+
+                with open(
+                    old_menu_file,
+                    "r",
+                    encoding="utf-8"
+                ) as file:
+
+                    old_menu = json.load(file)
+
+                self._save_json(
+                    self.menu_file,
+                    old_menu
+                )
+
+                logger.info(
+                    "[狗子查询系统] "
+                    "已迁移旧版 menu.json"
+                )
+
+            except Exception as error:
+
+                logger.error(
+                    "[狗子查询系统] "
+                    f"迁移 menu.json 失败：{error}"
+                )
+
+    # =========================================================
+    # 创建数据文件
     # =========================================================
 
     def _create_data_files(self):
@@ -131,6 +256,10 @@ class GouziQueryPlugin(Star):
                 self.menu_file,
                 []
             )
+
+    # =========================================================
+    # 读取 JSON
+    # =========================================================
 
     def _load_json(
         self,
@@ -160,6 +289,10 @@ class GouziQueryPlugin(Star):
             )
 
             return default
+
+    # =========================================================
+    # 保存 JSON
+    # =========================================================
 
     def _save_json(
         self,
@@ -273,20 +406,27 @@ class GouziQueryPlugin(Star):
 
         else:
 
+            del self.replies[keyword]
+
             yield event.plain_result(
                 "❌ 保存失败，请检查插件权限。"
             )
 
-@filter.command("查询菜单")
-async def query_menu(
-    self,
-    event: AstrMessageEvent
-):
-    yield event.plain_result(
-        "请发送#+数字以获取对应菜单页\n"
-        "例如：#1"
-    )
-    
+    # =========================================================
+    # 查询菜单
+    # =========================================================
+
+    @filter.command("查询菜单")
+    async def query_menu(
+        self,
+        event: AstrMessageEvent
+    ):
+
+        yield event.plain_result(
+            "请发送#+数字以获取对应菜单页\n"
+            "例如：#1"
+        )
+
     # =========================================================
     # 管理员：修改回复
     # =========================================================
@@ -336,18 +476,28 @@ async def query_menu(
 
             return
 
+        old_reply = self.replies[keyword]
+
         self.replies[keyword] = reply
 
-        self._save_json(
+        if self._save_json(
             self.reply_file,
             self.replies
-        )
+        ):
 
-        yield event.plain_result(
-            "✅ 修改回复成功\n\n"
-            f"关键词：{keyword}\n"
-            f"新回答：{reply}"
-        )
+            yield event.plain_result(
+                "✅ 修改回复成功\n\n"
+                f"关键词：{keyword}\n"
+                f"新回答：{reply}"
+            )
+
+        else:
+
+            self.replies[keyword] = old_reply
+
+            yield event.plain_result(
+                "❌ 保存失败，请检查插件权限。"
+            )
 
     # =========================================================
     # 管理员：删除回复
@@ -382,17 +532,27 @@ async def query_menu(
 
             return
 
+        old_reply = self.replies[keyword]
+
         del self.replies[keyword]
 
-        self._save_json(
+        if self._save_json(
             self.reply_file,
             self.replies
-        )
+        ):
 
-        yield event.plain_result(
-            "✅ 删除回复成功\n\n"
-            f"关键词「{keyword}」已经删除。"
-        )
+            yield event.plain_result(
+                "✅ 删除回复成功\n\n"
+                f"关键词「{keyword}」已经删除。"
+            )
+
+        else:
+
+            self.replies[keyword] = old_reply
+
+            yield event.plain_result(
+                "❌ 保存失败，请检查插件权限。"
+            )
 
     # =========================================================
     # 管理员：查看回复
@@ -466,16 +626,24 @@ async def query_menu(
 
         self.menu.append(content)
 
-        self._save_json(
+        if self._save_json(
             self.menu_file,
             self.menu
-        )
+        ):
 
-        yield event.plain_result(
-            "✅ 添加菜单成功\n\n"
-            f"内容：{content}\n"
-            f"当前菜单共 {len(self.menu)} 条"
-        )
+            yield event.plain_result(
+                "✅ 添加菜单成功\n\n"
+                f"内容：{content}\n"
+                f"当前菜单共 {len(self.menu)} 条"
+            )
+
+        else:
+
+            self.menu.pop()
+
+            yield event.plain_result(
+                "❌ 保存失败，请检查插件权限。"
+            )
 
     # =========================================================
     # 管理员：修改菜单
@@ -527,18 +695,28 @@ async def query_menu(
 
         index = self.menu.index(old)
 
+        old_value = self.menu[index]
+
         self.menu[index] = new
 
-        self._save_json(
+        if self._save_json(
             self.menu_file,
             self.menu
-        )
+        ):
 
-        yield event.plain_result(
-            "✅ 修改菜单成功\n\n"
-            f"原内容：{old}\n"
-            f"新内容：{new}"
-        )
+            yield event.plain_result(
+                "✅ 修改菜单成功\n\n"
+                f"原内容：{old}\n"
+                f"新内容：{new}"
+            )
+
+        else:
+
+            self.menu[index] = old_value
+
+            yield event.plain_result(
+                "❌ 保存失败，请检查插件权限。"
+            )
 
     # =========================================================
     # 管理员：删除菜单
@@ -572,17 +750,30 @@ async def query_menu(
 
             return
 
-        self.menu.remove(content)
+        index = self.menu.index(content)
 
-        self._save_json(
+        self.menu.pop(index)
+
+        if self._save_json(
             self.menu_file,
             self.menu
-        )
+        ):
 
-        yield event.plain_result(
-            f"✅ 删除菜单成功\n\n"
-            f"内容：{content}"
-        )
+            yield event.plain_result(
+                "✅ 删除菜单成功\n\n"
+                f"内容：{content}"
+            )
+
+        else:
+
+            self.menu.insert(
+                index,
+                content
+            )
+
+            yield event.plain_result(
+                "❌ 保存失败，请检查插件权限。"
+            )
 
     # =========================================================
     # 管理员：查看菜单
@@ -634,7 +825,6 @@ async def query_menu(
         event: AstrMessageEvent
     ):
 
-        # 菜单开关
         if not self.menu_enabled:
             return
 
@@ -669,7 +859,9 @@ async def query_menu(
         page_size = 10
 
         total_pages = (
-            len(self.menu) + page_size - 1
+            len(self.menu)
+            + page_size
+            - 1
         ) // page_size
 
         if page > total_pages:
@@ -687,7 +879,9 @@ async def query_menu(
 
         end = start + page_size
 
-        page_items = self.menu[start:end]
+        page_items = self.menu[
+            start:end
+        ]
 
         lines = [
             f"内容菜单（{page}/{total_pages}）",
@@ -726,12 +920,11 @@ async def query_menu(
         event: AstrMessageEvent
     ):
 
-        # 关键词回复开关
         if not self.reply_enabled:
             return
 
-        # 不 strip
-        # 保证严格完全匹配
+        # 不使用 strip()
+        # 实现真正的完全匹配
         message = event.message_str
 
         if message in self.replies:
